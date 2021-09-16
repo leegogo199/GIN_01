@@ -8,7 +8,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jinzhu/gorm"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func Register(ctx *gin.Context) {
@@ -23,9 +23,9 @@ func Register(ctx *gin.Context) {
 			gin.H{"code": 422, "msg": "手机号必须为11位"})
 		return
 	}
-	if len(password) < 6 {
+	if len(password) < 6 || len(password) > 11 {
 		ctx.JSON(http.StatusUnprocessableEntity,
-			gin.H{"code": 422, "msg": "密码必须大于6位"})
+			gin.H{"code": 422, "msg": "密码必须大于6位且小于11位"})
 		return
 	}
 	//
@@ -34,30 +34,75 @@ func Register(ctx *gin.Context) {
 	}
 	log.Println(name, telephone, password)
 	//判断手机号是否存在
-	if IsTelephoneExist(db, telephone) {
+	if util.IsTelephoneExist(db, telephone) {
 		ctx.JSON(http.StatusUnprocessableEntity,
 			gin.H{"code": 422, "msg": "该用户已经注册"})
 		return
 	}
+	//密码加密
+	hashPD, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError,
+			gin.H{"code": 500, "msg": "加密错误"})
+		return
+	}
 	//创建用户
+
 	newUser := Model.User{
 		Name:      name,
 		Telephone: telephone,
-		Password:  password,
+		Password:  string(hashPD),
 	}
 	db.Create(&newUser)
 
 	//返回结果
 	ctx.JSON(200, gin.H{
+		"code":    200,
 		"message": "注册成功",
 	})
 	return
 }
-func IsTelephoneExist(db *gorm.DB, telephone string) bool {
-	var user Model.User
-	db.Where("telephone=?", telephone).First(&user)
-	if user.ID != 0 {
-		return true
+
+func Login(ctx *gin.Context) {
+	//获取参数
+	DB := common.GetDB()
+	telephone := ctx.PostForm("telephone")
+	password := ctx.PostForm("password")
+	//数据验证
+	if len(telephone) != 11 {
+		ctx.JSON(http.StatusUnprocessableEntity,
+			gin.H{"code": 422, "msg": "手机号必须为11位"})
+		return
 	}
-	return false
+	if len(password) < 6 || len(password) > 11 {
+		ctx.JSON(http.StatusUnprocessableEntity,
+			gin.H{"code": 422, "msg": "密码必须大于6位且小于11位"})
+		return
+	}
+	//手机号判断
+	var user Model.User
+	DB.Where("telephone=?", telephone).First(&user)
+	if user.ID == 0 {
+		ctx.JSON(http.StatusUnprocessableEntity, gin.H{
+			"code": 422,
+			"msg":  "用户不存在"})
+		return
+	}
+
+	//判断密码正确？
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "密码错误"})
+		return
+	}
+
+	//发放token
+	token := "11"
+
+	//返回结果
+	ctx.JSON(200, gin.H{
+		"code": 200,
+		"data": gin.H{"token": token},
+		"msg":  "登陆成功",
+	})
+
 }

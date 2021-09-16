@@ -17,7 +17,7 @@ func main() {
 	defer db.Close()
 
 	r := gin.Default()
-
+	r = CollectRouter(r)
 	panic(r.Run())
 
 }
